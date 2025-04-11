@@ -8,7 +8,53 @@
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
 
-  gtag('config', 'G-DE76286WCD');
+  // Basic configuration
+  gtag('config', 'G-DE76286WCD', {
+    'send_page_view': true,
+    'cookie_domain': 'auto',
+    'anonymize_ip': true,
+    'page_title': document.title,
+    'page_location': window.location.href,
+    'user_properties': {
+      'app_version': '1.0.0'
+    }
+  });
+  
+  // Performance measurement
+  gtag('set', {
+    'appName': 'TianQi Weather App',
+    'appVersion': '1.0.0'
+  });
+  
+  // Helper function to log events
+  function logEvent(eventName, params = {}) {
+    gtag('event', eventName, params);
+    console.log(`Event logged: ${eventName}`, params);
+  }
+  
+  // Log page view on initial load
+  window.addEventListener('load', function() {
+    // Track initial page load time
+    if (window.performance) {
+      const perf = window.performance.timing;
+      const loadTime = perf.loadEventEnd - perf.navigationStart;
+      
+      logEvent('page_view', {
+        'page_title': 'TianQi Weather App',
+        'page_load_time': loadTime
+      });
+      
+      // Log performance metrics
+      logEvent('performance_metrics', {
+        'page_load_time': loadTime,
+        'dns_time': perf.domainLookupEnd - perf.domainLookupStart,
+        'tcp_connect_time': perf.connectEnd - perf.connectStart,
+        'server_response_time': perf.responseEnd - perf.requestStart,
+        'dom_interactive_time': perf.domInteractive - perf.navigationStart,
+        'dom_complete_time': perf.domComplete - perf.navigationStart
+      });
+    }
+  });
 </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -614,6 +660,76 @@
         .bg-mist {
             background: linear-gradient(135deg, #606c88 0%, #3f4c6b 100%);
         }
+
+        /* Analytics button */
+        #analytics-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            z-index: 100;
+            transition: all 0.3s;
+        }
+        
+        #analytics-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        .analytics-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+        
+        .analytics-content {
+            background-color: white;
+            width: 90%;
+            max-width: 900px;
+            height: 80%;
+            max-height: 700px;
+            border-radius: var(--border-radius);
+            padding: 25px;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            overflow: auto;
+        }
+        
+        .analytics-close {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #888;
+            transition: color 0.2s;
+        }
+        
+        .analytics-close:hover {
+            color: #333;
+        }
+        
+        .analytics-iframe {
+            width: 100%;
+            height: calc(100% - 60px);
+            border: none;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
@@ -714,6 +830,19 @@
         </div>
     </div>
     
+    <!-- Analytics button and modal -->
+    <div id="analytics-btn">
+        <i class="bi bi-bar-chart-fill"></i>
+    </div>
+    
+    <div id="analytics-modal" class="analytics-modal">
+        <div class="analytics-content">
+            <div class="analytics-close"><i class="bi bi-x-lg"></i></div>
+            <h2>TianQi Weather Analytics</h2>
+            <iframe class="analytics-iframe" src="https://analytics.google.com/analytics/web/#/p000000000/reports/intelligenthome" allowfullscreen></iframe>
+        </div>
+    </div>
+    
     <!-- Leaflet地图脚本 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -743,12 +872,18 @@
     const forecastDetailModal  = document.getElementById('forecast-detail-modal');
     const forecastDetailClose  = document.querySelector('.forecast-detail-close');
     const forecastDetailBody   = document.getElementById('forecast-detail-body');
+    const analyticsBtn         = document.getElementById('analytics-btn');
+    const analyticsModal       = document.getElementById('analytics-modal');
+    const analyticsClose       = document.querySelector('.analytics-close');
     
     let map, weatherLayer, mapMarker;
     let currentCity = '';
     let forecastData = [];
     let currentForecastPage = 0;
     let userCoords = null;
+    let startTime = Date.now();
+    let apiCallCount = 0;
+    let lastSearchTime = null;
     
     // 天气情况映射 - 移除日/夜区分，只使用白天的图标和背景
     const weatherConditions = {
@@ -837,6 +972,62 @@
         4: { color: '#F44336', text: 'Poor' },
         5: { color: '#9C27B0', text: 'Very Poor' }
     };
+
+    // Analytics tracking
+    function trackAPICall(endpoint, responseTime, status) {
+        apiCallCount++;
+        logEvent('api_call', {
+            'endpoint': endpoint,
+            'response_time_ms': responseTime,
+            'status': status,
+            'call_count': apiCallCount
+        });
+    }
+    
+    function trackSearch(query, resultCount, searchTime) {
+        logEvent('search', {
+            'search_term': query,
+            'results_count': resultCount,
+            'search_time_ms': searchTime
+        });
+    }
+    
+    function trackFeatureUsage(featureName, details = {}) {
+        logEvent('feature_usage', {
+            'feature_name': featureName,
+            ...details
+        });
+    }
+    
+    function trackErrorOccurrence(errorType, errorMessage, source) {
+        logEvent('error', {
+            'error_type': errorType,
+            'error_message': errorMessage,
+            'error_source': source
+        });
+    }
+    
+    function trackUserAction(actionName, actionDetails = {}) {
+        logEvent('user_action', {
+            'action_name': actionName,
+            ...actionDetails
+        });
+    }
+    
+    function trackScreenView(screenName) {
+        logEvent('screen_view', {
+            'screen_name': screenName
+        });
+    }
+    
+    function trackWeatherData(city, country, weather_condition, temperature) {
+        logEvent('weather_data_view', {
+            'city': city,
+            'country': country,
+            'weather_condition': weather_condition,
+            'temperature': temperature
+        });
+    }
 
     // 格式化日期时间
     function formatDateTime(timestamp) {
@@ -929,6 +1120,13 @@
         } else {
             messageElem.classList.remove('alert-success');
         }
+        
+        // Track notification display
+        logEvent('notification_displayed', {
+            'message': msg,
+            'type': type
+        });
+        
         setTimeout(() => hideMessage(), 5000);
     }
     function hideMessage() {
@@ -938,18 +1136,46 @@
     // Loading
     function showLoading() {
         loading.style.display = 'flex';
+        
+        // Track loading started
+        logEvent('loading_started', {
+            'timestamp': new Date().toISOString()
+        });
     }
     function hideLoading() {
         loading.style.display = 'none';
+        
+        // Track loading ended with duration
+        logEvent('loading_ended', {
+            'timestamp': new Date().toISOString(),
+            'duration_ms': Date.now() - startTime
+        });
     }
 
     // 获取当前天气（城市）
     function getWeather(city) {
         showLoading();
+        const requestStartTime = Date.now();
         const units = unitSelect.value;
         const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${apiKey}&units=${units}`;
+        
+        // Track search start
+        lastSearchTime = Date.now();
+        
+        // Track search attempt
+        trackUserAction('search_weather', {
+            'search_term': city,
+            'units': units,
+            'search_method': 'city_name'
+        });
+        
         fetch(url)
             .then((r) => {
+                const responseTime = Date.now() - requestStartTime;
+                
+                // Track API call
+                trackAPICall('current_weather', responseTime, r.status);
+                
                 if (!r.ok) {
                     if (r.status === 404) throw new Error('City not found. Please check the spelling.');
                     else throw new Error('API error: ' + r.status);
@@ -960,26 +1186,66 @@
                 drawCurrentWeather(data);
                 const { lat, lon } = data.coord;
                 currentCity = data.name;
+                
+                // Track successful search
+                const searchTime = Date.now() - lastSearchTime;
+                trackSearch(city, 1, searchTime);
+                
+                // Track location data
+                logEvent('location_data', {
+                    'city': data.name,
+                    'country': data.sys.country,
+                    'latitude': lat,
+                    'longitude': lon,
+                    'timezone': data.timezone
+                });
+                
                 return Promise.all([getForecast(lat, lon), getAirPollution(lat, lon)]);
             })
             .then(() => {
                 hideLoading();
                 showMessage(`Weather updated for ${currentCity}`, 'success');
+                
+                // Track success completion
+                trackUserAction('weather_update_complete', {
+                    'city': currentCity,
+                    'method': 'city_search',
+                    'total_time_ms': Date.now() - lastSearchTime
+                });
             })
             .catch((err) => {
                 hideLoading();
                 showMessage(err.message);
                 console.log(err);
+                
+                // Track error
+                trackErrorOccurrence('api_error', err.message, 'getWeather');
             });
     }
 
     // 根据坐标获取天气
     function getCurrentWeatherByCoords(lat, lon) {
         showLoading();
+        const requestStartTime = Date.now();
         const units = unitSelect.value;
         const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`;
+        
+        // Track search with coordinates
+        lastSearchTime = Date.now();
+        trackUserAction('search_weather', {
+            'latitude': lat,
+            'longitude': lon,
+            'units': units,
+            'search_method': 'coordinates'
+        });
+        
         fetch(url)
             .then((r) => {
+                const responseTime = Date.now() - requestStartTime;
+                
+                // Track API call
+                trackAPICall('current_weather_by_coords', responseTime, r.status);
+                
                 if (!r.ok) throw new Error('Location not found or API error');
                 return r.json();
             })
@@ -987,16 +1253,41 @@
                 drawCurrentWeather(data);
                 cityInput.value = data.name;
                 currentCity = data.name;
+                
+                // Track successful search
+                const searchTime = Date.now() - lastSearchTime;
+                trackSearch(`coords(${lat},${lon})`, 1, searchTime);
+                
+                // Track location data
+                logEvent('location_data', {
+                    'city': data.name,
+                    'country': data.sys.country,
+                    'latitude': lat,
+                    'longitude': lon,
+                    'timezone': data.timezone,
+                    'method': 'geolocation'
+                });
+                
                 return Promise.all([getForecast(lat, lon), getAirPollution(lat, lon)]);
             })
             .then(() => {
                 hideLoading();
                 showMessage(`Weather updated for your location: ${currentCity}`, 'success');
+                
+                // Track success completion
+                trackUserAction('weather_update_complete', {
+                    'city': currentCity,
+                    'method': 'geolocation',
+                    'total_time_ms': Date.now() - lastSearchTime
+                });
             })
             .catch((err) => {
                 hideLoading();
                 showMessage('Error fetching weather: ' + err.message);
                 console.log(err);
+                
+                // Track error
+                trackErrorOccurrence('api_error', err.message, 'getCurrentWeatherByCoords');
             });
     }
 
@@ -1006,12 +1297,24 @@
             showLoading();
             showMessage("Getting your location...", "success");
             
+            // Track geolocation request
+            trackFeatureUsage('geolocation', {
+                'action': 'request_permission'
+            });
+            
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
                     userCoords = { lat, lon };
                     hideMessage();
+                    
+                    // Track successful geolocation
+                    trackFeatureUsage('geolocation', {
+                        'action': 'permission_granted',
+                        'accuracy': position.coords.accuracy
+                    });
+                    
                     getCurrentWeatherByCoords(lat, lon);
                 },
                 (error) => {
@@ -1033,6 +1336,9 @@
                     showMessage(errorMessage);
                     console.error("Geolocation error:", error);
                     
+                    // Track geolocation error
+                    trackErrorOccurrence('geolocation_error', errorMessage, 'getUserLocation');
+                    
                     // Fall back to default city
                     getWeather('Hong Kong');
                 },
@@ -1044,22 +1350,39 @@
             );
         } else {
             showMessage("Geolocation is not supported by your browser. Using default city.");
+            
+            // Track geolocation not supported
+            trackErrorOccurrence('geolocation_not_supported', 'Browser does not support geolocation', 'getUserLocation');
+            
             getWeather('Hong Kong');
         }
     }
 
     // 获取 5天预报
     function getForecast(lat, lon) {
+        const requestStartTime = Date.now();
         const units = unitSelect.value;
         const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`;
         return fetch(url)
             .then((r) => {
+                const responseTime = Date.now() - requestStartTime;
+                
+                // Track API call
+                trackAPICall('forecast', responseTime, r.status);
+                
                 if (!r.ok) throw new Error('Forecast data unavailable');
                 return r.json();
             })
             .then((data) => {
                 if (data && data.list && data.list.length > 0) {
                     processForecastData(data);
+                    
+                    // Track forecast data received
+                    trackFeatureUsage('forecast', {
+                        'items_count': data.list.length,
+                        'days_count': forecastData.length
+                    });
+                    
                     return data;
                 } else {
                     throw new Error('Invalid forecast data');
@@ -1067,6 +1390,10 @@
             })
             .catch((err) => {
                 console.log(err);
+                
+                // Track error
+                trackErrorOccurrence('forecast_error', err.message, 'getForecast');
+                
                 forecastCarousel.innerHTML = `
                     <div style="padding: 20px; text-align: center; background: rgba(255,255,255,0.5); border-radius: 10px; width: 100%;">
                         <p style="color: #d32f2f; font-weight: 500;">
@@ -1122,15 +1449,32 @@
 
     // 获取空气质量
     function getAirPollution(lat, lon) {
+        const requestStartTime = Date.now();
         const url = `https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${apiKey}`;
         return fetch(url)
             .then((r) => {
+                const responseTime = Date.now() - requestStartTime;
+                
+                // Track API call
+                trackAPICall('air_pollution', responseTime, r.status);
+                
                 if (!r.ok) throw new Error('Air quality data unavailable');
                 return r.json();
             })
             .then((data) => {
                 if (data && data.list && data.list.length > 0) {
                     drawAirPollution(data);
+                    
+                    // Track air quality data
+                    trackFeatureUsage('air_quality', {
+                        'aqi_value': data.list[0].main.aqi,
+                        'co': data.list[0].components.co,
+                        'no2': data.list[0].components.no2,
+                        'o3': data.list[0].components.o3,
+                        'pm2_5': data.list[0].components.pm2_5,
+                        'pm10': data.list[0].components.pm10
+                    });
+                    
                     return data;
                 } else {
                     throw new Error('Invalid air quality data');
@@ -1138,6 +1482,10 @@
             })
             .catch((err) => {
                 console.log(err);
+                
+                // Track error
+                trackErrorOccurrence('air_quality_error', err.message, 'getAirPollution');
+                
                 airQualityContainer.innerHTML = `
                   <div style="padding: 20px; text-align: center; background: rgba(255,255,255,0.5); border-radius: 10px;">
                       <p style="color: #d32f2f; font-weight: 500;">Error loading air quality data: ${err.message}</p>
@@ -1190,6 +1538,17 @@
         
         // 地图
         initMap(data.coord.lat, data.coord.lon, locationValue);
+        
+        // Track weather data view
+        trackWeatherData(
+            data.name, 
+            data.sys.country, 
+            formattedDesc,
+            tempValue
+        );
+        
+        // Track current section view
+        trackScreenView('current_weather');
     }
 
     // 创建预报UI - 修改为使用白天图标
@@ -1247,11 +1606,21 @@
                 </div>
             `;
             forecastItem.addEventListener('click', () => {
+                // Track forecast item click
+                trackUserAction('view_forecast_detail', {
+                    'day': dayName,
+                    'date': dayDate,
+                    'forecast_index': idx
+                });
+                
                 showForecastDetail(item, dayName, dayDate, iconCode, finalDesc);
             });
             forecastCarousel.appendChild(forecastItem);
         });
         showForecastPage(0);
+        
+        // Track forecast section view
+        trackScreenView('forecast');
     }
 
     // 展示详细弹窗
@@ -1323,6 +1692,9 @@
           </div>
         `;
         forecastDetailModal.style.display = 'flex';
+        
+        // Track forecast detail modal view
+        trackScreenView('forecast_detail_modal');
     }
 
     // 分页显示 5天预报
@@ -1343,6 +1715,15 @@
         }
         forecastNavPrev.style.display = page > 0 ? 'flex' : 'none';
         forecastNavNext.style.display = page < totalPages - 1 ? 'flex' : 'none';
+        
+        // Track forecast pagination
+        if (page > 0) {
+            trackUserAction('forecast_pagination', {
+                'page': page,
+                'total_pages': totalPages,
+                'items_per_page': itemsPerPage
+            });
+        }
     }
 
     // 展示空气质量
@@ -1391,8 +1772,15 @@
               </div>
             `;
             airQualityContainer.innerHTML = html;
+            
+            // Track air quality section view
+            trackScreenView('air_quality');
         } catch (e) {
             console.error(e);
+            
+            // Track error
+            trackErrorOccurrence('air_quality_rendering_error', e.message, 'drawAirPollution');
+            
             airQualityContainer.innerHTML = `
               <div style="padding: 20px; text-align: center;">
                   <p style="color: #777;">Air quality data not available for this location</p>
@@ -1412,6 +1800,14 @@
                 zoomControl: true,
                 attributionControl: true
             }).setView([lat, lon], 8);
+            
+            // Track map initialization
+            trackFeatureUsage('map', {
+                'action': 'initialize',
+                'latitude': lat,
+                'longitude': lon,
+                'zoom': 8
+            });
             
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: 'Map data &copy; OpenStreetMap contributors, Weather data &copy; OpenWeatherMap',
@@ -1435,8 +1831,30 @@
             setTimeout(() => {
                 map.invalidateSize();
             }, 500);
+            
+            // Add map event listeners
+            map.on('zoomend', function() {
+                trackUserAction('map_zoom', {
+                    'new_zoom': map.getZoom()
+                });
+            });
+            
+            map.on('moveend', function() {
+                const center = map.getCenter();
+                trackUserAction('map_move', {
+                    'latitude': center.lat.toFixed(4),
+                    'longitude': center.lng.toFixed(4)
+                });
+            });
+            
+            // Track map section view
+            trackScreenView('weather_map');
         } catch (error) {
             console.error(error);
+            
+            // Track error
+            trackErrorOccurrence('map_error', error.message, 'initMap');
+            
             document.getElementById('map').innerHTML = `
               <div style="padding: 30px; text-align: center; background-color: rgba(255,255,255,0.9); border-radius: 10px;">
                   <p style="color: #d32f2f; font-weight: bold; margin-bottom: 15px;">
@@ -1451,9 +1869,26 @@
         }
     }
 
+    // Show Analytics Modal
+    function showAnalyticsModal() {
+        analyticsModal.style.display = 'flex';
+        
+        // Track analytics view
+        trackScreenView('analytics_dashboard');
+    }
+    
+    // Hide Analytics Modal
+    function hideAnalyticsModal() {
+        analyticsModal.style.display = 'none';
+    }
+
     // 页面加载完成 - 修改为首先尝试获取用户位置
     document.addEventListener('DOMContentLoaded', () => {
+        startTime = Date.now();
         showMessage("Loading weather information...", "success");
+        
+        // Track page load
+        trackScreenView('app_loaded');
         
         // 优先使用地理位置
         if (navigator.geolocation) {
@@ -1466,6 +1901,9 @@
                 },
                 (err) => {
                     console.error("Geolocation error:", err);
+                    
+                    // Track geolocation error on initial load
+                    trackErrorOccurrence('initial_geolocation_error', err.message, 'DOMContentLoaded');
                     
                     // 如果有输入框中的城市，则使用它
                     const defaultCity = cityInput.value.trim();
@@ -1488,6 +1926,10 @@
             // 浏览器不支持定位
             const defaultCity = cityInput.value.trim() || 'Hong Kong';
             showMessage(`Geolocation not supported. Using ${defaultCity}.`);
+            
+            // Track geolocation not supported on initial load
+            trackErrorOccurrence('geolocation_not_supported', 'Browser does not support geolocation', 'DOMContentLoaded');
+            
             getWeather(defaultCity);
         }
     });
@@ -1497,15 +1939,27 @@
         const city = cityInput.value.trim();
         if (city) {
             hideMessage();
+            
+            // Track search button click
+            trackUserAction('search_button_click', {
+                'search_term': city
+            });
+            
             getWeather(city);
             currentCity = city;
         } else {
             showMessage('Please enter a city name');
+            
+            // Track empty search attempt
+            trackErrorOccurrence('search_error', 'Empty search term', 'getWeatherBtn_click');
         }
     });
 
     // 按钮点击 - 我的位置
     getLocationBtn.addEventListener('click', () => {
+        // Track location button click
+        trackUserAction('location_button_click');
+        
         getUserLocation();
     });
 
@@ -1515,16 +1969,31 @@
             const city = cityInput.value.trim();
             if (city) {
                 hideMessage();
+                
+                // Track search via enter key
+                trackUserAction('search_enter_key', {
+                    'search_term': city
+                });
+                
                 getWeather(city);
                 currentCity = city;
             } else {
                 showMessage('Please enter a city name');
+                
+                // Track empty search attempt
+                trackErrorOccurrence('search_error', 'Empty search term', 'enter_key');
             }
         }
     });
 
     // 单位切换
     unitSelect.addEventListener('change', () => {
+        // Track unit change
+        trackUserAction('unit_change', {
+            'new_unit': unitSelect.value,
+            'from_unit': unitSelect.value === 'metric' ? 'imperial' : 'metric'
+        });
+        
         if (currentCity) {
             getWeather(currentCity);
         } else if (userCoords) {
@@ -1540,6 +2009,12 @@
         btn.addEventListener('click', function() {
             document.querySelectorAll('.map-btn').forEach((b) => b.classList.remove('active'));
             this.classList.add('active');
+            
+            // Track map layer change
+            trackUserAction('map_layer_change', {
+                'layer': this.dataset.layer
+            });
+            
             if (map && weatherLayer) {
                 const selectedLayer = this.dataset.layer;
                 map.removeLayer(weatherLayer);
@@ -1556,21 +2031,118 @@
 
     // 预报分页
     forecastNavPrev.addEventListener('click', () => {
+        // Track forecast navigation
+        trackUserAction('forecast_nav', {
+            'direction': 'prev',
+            'current_page': currentForecastPage
+        });
+        
         showForecastPage(currentForecastPage - 1);
     });
     forecastNavNext.addEventListener('click', () => {
+        // Track forecast navigation
+        trackUserAction('forecast_nav', {
+            'direction': 'next',
+            'current_page': currentForecastPage
+        });
+        
         showForecastPage(currentForecastPage + 1);
     });
 
     // 关闭详情弹窗
     forecastDetailClose.addEventListener('click', () => {
         forecastDetailModal.style.display = 'none';
+        
+        // Track forecast modal close
+        trackUserAction('close_forecast_modal', {
+            'method': 'close_button'
+        });
     });
     forecastDetailModal.addEventListener('click', (e) => {
         if (e.target === forecastDetailModal) {
             forecastDetailModal.style.display = 'none';
+            
+            // Track forecast modal close
+            trackUserAction('close_forecast_modal', {
+                'method': 'outside_click'
+            });
         }
     });
+    
+    // Analytics button and modal
+    analyticsBtn.addEventListener('click', () => {
+        // Track analytics button click
+        trackUserAction('analytics_button_click');
+        
+        showAnalyticsModal();
+    });
+    
+    analyticsClose.addEventListener('click', () => {
+        hideAnalyticsModal();
+        
+        // Track analytics modal close
+        trackUserAction('close_analytics_modal', {
+            'method': 'close_button'
+        });
+    });
+    
+    analyticsModal.addEventListener('click', (e) => {
+        if (e.target === analyticsModal) {
+            hideAnalyticsModal();
+            
+            // Track analytics modal close
+            trackUserAction('close_analytics_modal', {
+                'method': 'outside_click'
+            });
+        }
+    });
+    
+    // Track all link clicks for navigation analysis
+    document.addEventListener('click', function(e) {
+        const target = e.target.closest('a');
+        if (target && target.href) {
+            trackUserAction('link_click', {
+                'href': target.href,
+                'text': target.textContent.trim(),
+                'id': target.id || 'unnamed_link'
+            });
+        }
+    });
+    
+    // Track scrolling behavior
+    let lastKnownScrollPosition = 0;
+    let ticking = false;
+    
+    document.addEventListener('scroll', function() {
+        lastKnownScrollPosition = window.scrollY;
+        
+        if (!ticking) {
+            window.requestAnimationFrame(function() {
+                // Only track significant scrolls (more than 20% of viewport)
+                if (Math.abs(lastKnownScrollPosition - window.scrollY) > window.innerHeight * 0.2) {
+                    trackUserAction('significant_scroll', {
+                        'scroll_position': window.scrollY,
+                        'scroll_percentage': (window.scrollY / (document.body.scrollHeight - window.innerHeight) * 100).toFixed(1)
+                    });
+                }
+                ticking = false;
+            });
+            ticking = true;
+        }
+    });
+    
+    // Track session duration periodically
+    let sessionStartTime = Date.now();
+    setInterval(function() {
+        const sessionDuration = Math.floor((Date.now() - sessionStartTime) / 1000);
+        // Track every minute
+        if (sessionDuration % 60 === 0) {
+            logEvent('session_duration_reached', {
+                'duration_seconds': sessionDuration,
+                'duration_minutes': Math.floor(sessionDuration / 60)
+            });
+        }
+    }, 5000); // Check every 5 seconds
     </script>
 </body>
 </html>
