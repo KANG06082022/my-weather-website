@@ -4,6 +4,7 @@ const apiKey = 'bd4ee39a1eb3966966604bee352d6f98';
 // DOM Elements
 const cityInput = document.getElementById('cityInput');
 const getWeatherBtn = document.getElementById('getWeatherBtn');
+const getLocationBtn = document.getElementById('getLocationBtn');
 const unitSelect = document.getElementById('unitSelect');
 const description = document.getElementById('description');
 const temp = document.getElementById('temp');
@@ -23,16 +24,21 @@ const airQualityContainer = document.getElementById('airQualityContainer');
 const forecastDetailModal = document.getElementById('forecast-detail-modal');
 const forecastDetailClose = document.querySelector('.forecast-detail-close');
 const forecastDetailBody = document.getElementById('forecast-detail-body');
+const analyticsBtn = document.getElementById('analytics-btn');
+const analyticsModal = document.getElementById('analytics-modal');
+const analyticsClose = document.querySelector('.analytics-close');
 
 // Map variables
-let map;
-let weatherLayer;
+let map, weatherLayer, mapMarker;
 let currentCity = '';
-let mapMarker;
 let forecastData = [];
 let currentForecastPage = 0;
+let userCoords = null;
+let startTime = Date.now();
+let apiCallCount = 0;
+let lastSearchTime = null;
 
-// 简化的天气条件映射，不区分日夜
+// Weather condition mapping
 const weatherConditions = {
     // Clear skies
     'clear sky': { 
@@ -141,6 +147,62 @@ const aqiInfo = {
     5: { color: '#9C27B0', text: 'Very Poor' }
 };
 
+// Analytics tracking functions
+function trackAPICall(endpoint, responseTime, status) {
+    apiCallCount++;
+    logEvent('api_call', {
+        'endpoint': endpoint,
+        'response_time_ms': responseTime,
+        'status': status,
+        'call_count': apiCallCount
+    });
+}
+
+function trackSearch(query, resultCount, searchTime) {
+    logEvent('search', {
+        'search_term': query,
+        'results_count': resultCount,
+        'search_time_ms': searchTime
+    });
+}
+
+function trackFeatureUsage(featureName, details = {}) {
+    logEvent('feature_usage', {
+        'feature_name': featureName,
+        ...details
+    });
+}
+
+function trackErrorOccurrence(errorType, errorMessage, source) {
+    logEvent('error', {
+        'error_type': errorType,
+        'error_message': errorMessage,
+        'error_source': source
+    });
+}
+
+function trackUserAction(actionName, actionDetails = {}) {
+    logEvent('user_action', {
+        'action_name': actionName,
+        ...actionDetails
+    });
+}
+
+function trackScreenView(screenName) {
+    logEvent('screen_view', {
+        'screen_name': screenName
+    });
+}
+
+function trackWeatherData(city, country, weather_condition, temperature) {
+    logEvent('weather_data_view', {
+        'city': city,
+        'country': country,
+        'weather_condition': weather_condition,
+        'temperature': temperature
+    });
+}
+
 // Format date and time
 function formatDateTime(timestamp) {
     const date = new Date(timestamp * 1000);
@@ -154,26 +216,26 @@ function formatDateTime(timestamp) {
     return date.toLocaleDateString('en-US', options);
 }
 
-// 获取天气图标URL - 统一使用白天的图标
+// Get the weather icon URL
 function getWeatherIconUrl(iconCode) {
-    // 确保使用白天图标（将任何'n'结尾替换为'd'）
+    // Make sure to use the daytime icon (replace any 'n' endings with 'd')
     if (!iconCode || typeof iconCode !== 'string') {
-        iconCode = '01d'; // 默认为白天晴天图标
+        iconCode = '01d'; // The default is the daytime sunny icon
     } else if (iconCode.endsWith('n')) {
-        // 将夜间图标转换为白天图标
+       // Convert the night icon to the day icon
         iconCode = iconCode.slice(0, -1) + 'd';
     }
     
-    // 使用OpenWeatherMap图标URL
+    // Use the OpenWeatherMap icon URL
     return `https://openweathermap.org/img/wn/${iconCode}@2x.png`;
 }
 
-// 获取格式化的天气描述 - 不区分日夜
+// Get the formatted weather description
 function getFormattedWeatherDescription(description) {
     if (!description) return '';
     const lowerDesc = description.toLowerCase();
     
-    // 简化的天气描述映射
+    // Simple mapping - no distinction between day and night
     const mapping = {
         'clear sky': 'Clear sky',
         'few clouds': 'Few clouds',
@@ -192,29 +254,28 @@ function getFormattedWeatherDescription(description) {
         'haze': 'Haze'
     };
     
-    // 查找映射
     for (const key in mapping) {
         if (lowerDesc.includes(key)) {
             return mapping[key];
         }
     }
     
-    // 默认首字母大写
+    // Default first letter is capitalized
     return description.charAt(0).toUpperCase() + description.slice(1);
 }
 
-// 更新背景 - 简化，统一使用白天背景
+// Update background by weather
 function updateBackgroundByWeather(descriptionValue) {
     const body = document.body;
-    // 删除所有现有的背景类
+    // Remove any existing background classes
     body.classList.remove(...body.classList);
     
     const lowerDesc = descriptionValue.toLowerCase();
     
-    // 尝试找到匹配的天气条件
+    // Try to find matching weather conditions
     for (const [key, value] of Object.entries(weatherConditions)) {
         if (lowerDesc.includes(key)) {
-            // 添加适当的背景类
+           // Add the appropriate background class
             if (value.bg) {
                 body.classList.add(value.bg);
                 return;
@@ -222,11 +283,11 @@ function updateBackgroundByWeather(descriptionValue) {
         }
     }
     
-    // 如果没有匹配，使用默认背景
+    // If no match is found, use the default background
     body.style.background = 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)';
 }
 
-// 显示通知消息
+// Display the notification message
 function showMessage(message, type = 'error') {
     messageElem.textContent = message;
     messageElem.style.display = 'block';
@@ -237,35 +298,68 @@ function showMessage(message, type = 'error') {
         messageElem.classList.remove('alert-success');
     }
     
-    // 5秒后自动隐藏
+    // Track notification display
+    logEvent('notification_displayed', {
+        'message': message,
+        'type': type
+    });
+    
+    // Automatically hide after 5 seconds
     setTimeout(() => {
         hideMessage();
     }, 5000);
 }
 
-// 隐藏通知消息
+// Hide notification message
 function hideMessage() {
     messageElem.style.display = 'none';
 }
 
-// 显示加载动画
+// Display loading animation
 function showLoading() {
     loading.style.display = 'flex';
+    
+    // Track loading started
+    logEvent('loading_started', {
+        'timestamp': new Date().toISOString()
+    });
 }
 
-// 隐藏加载动画
+// Hide the loading animation
 function hideLoading() {
     loading.style.display = 'none';
+    
+    // Track loading ended with duration
+    logEvent('loading_ended', {
+        'timestamp': new Date().toISOString(),
+        'duration_ms': Date.now() - startTime
+    });
 }
 
-// 通过城市名获取当前天气
+// Get the current weather by city name
 function getWeather(city) {
     showLoading();
+    const requestStartTime = Date.now();
     const units = unitSelect.value;
     const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${apiKey}&units=${units}`;
     
+    // Track search start
+    lastSearchTime = Date.now();
+    
+    // Track search attempt
+    trackUserAction('search_weather', {
+        'search_term': city,
+        'units': units,
+        'search_method': 'city_name'
+    });
+    
     fetch(url)
-        .then(response => {
+        .then((response) => {
+            const responseTime = Date.now() - requestStartTime;
+            
+            // Track API call
+            trackAPICall('current_weather', responseTime, response.status);
+            
             if (!response.ok) {
                 if (response.status === 404) {
                     throw new Error('City not found. Please check the spelling.');
@@ -280,6 +374,20 @@ function getWeather(city) {
             const lat = data.coord.lat;
             const lon = data.coord.lon;
             currentCity = data.name;
+            
+            // Track successful search
+            const searchTime = Date.now() - lastSearchTime;
+            trackSearch(city, 1, searchTime);
+            
+            // Track location data
+            logEvent('location_data', {
+                'city': data.name,
+                'country': data.sys.country,
+                'latitude': lat,
+                'longitude': lon,
+                'timezone': data.timezone
+            });
+            
             return Promise.all([
                 getForecast(lat, lon),
                 getAirPollution(lat, lon)
@@ -288,22 +396,47 @@ function getWeather(city) {
         .then(() => {
             hideLoading();
             showMessage(`Weather updated for ${currentCity}`, 'success');
+            
+            // Track success completion
+            trackUserAction('weather_update_complete', {
+                'city': currentCity,
+                'method': 'city_search',
+                'total_time_ms': Date.now() - lastSearchTime
+            });
         })
         .catch(error => {
             hideLoading();
             showMessage(error.message);
             console.error('Error fetching weather:', error);
+            
+            // Track error
+            trackErrorOccurrence('api_error', error.message, 'getWeather');
         });
 }
 
-// 通过坐标获取当前天气
+// Get the current weather by coordinates
 function getCurrentWeatherByCoords(lat, lon) {
     showLoading();
+    const requestStartTime = Date.now();
     const units = unitSelect.value;
     const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`;
     
+    // Track search with coordinates
+    lastSearchTime = Date.now();
+    trackUserAction('search_weather', {
+        'latitude': lat,
+        'longitude': lon,
+        'units': units,
+        'search_method': 'coordinates'
+    });
+    
     fetch(url)
-        .then(response => {
+        .then((response) => {
+            const responseTime = Date.now() - requestStartTime;
+            
+            // Track API call
+            trackAPICall('current_weather_by_coords', responseTime, response.status);
+            
             if (!response.ok) {
                 throw new Error('Location not found or API error');
             }
@@ -313,6 +446,21 @@ function getCurrentWeatherByCoords(lat, lon) {
             drawCurrentWeather(data);
             cityInput.value = data.name;
             currentCity = data.name;
+            
+            // Track successful search
+            const searchTime = Date.now() - lastSearchTime;
+            trackSearch(`coords(${lat},${lon})`, 1, searchTime);
+            
+            // Track location data
+            logEvent('location_data', {
+                'city': data.name,
+                'country': data.sys.country,
+                'latitude': lat,
+                'longitude': lon,
+                'timezone': data.timezone,
+                'method': 'geolocation'
+            });
+            
             return Promise.all([
                 getForecast(lat, lon),
                 getAirPollution(lat, lon)
@@ -321,20 +469,104 @@ function getCurrentWeatherByCoords(lat, lon) {
         .then(() => {
             hideLoading();
             showMessage(`Weather updated for your location: ${currentCity}`, 'success');
+            
+            // Track success completion
+            trackUserAction('weather_update_complete', {
+                'city': currentCity,
+                'method': 'geolocation',
+                'total_time_ms': Date.now() - lastSearchTime
+            });
         })
         .catch(error => {
             hideLoading();
             showMessage('Error fetching weather: ' + error.message);
             console.error('Error fetching weather by coords:', error);
+            
+            // Track error
+            trackErrorOccurrence('api_error', error.message, 'getCurrentWeatherByCoords');
         });
 }
 
-// 获取5天天气预报
+// Get user location with geolocation API
+function getUserLocation() {
+    if (navigator.geolocation) {
+        showLoading();
+        showMessage("Getting your location...", "success");
+        
+        // Track geolocation request
+        trackFeatureUsage('geolocation', {
+            'action': 'request_permission'
+        });
+        
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                userCoords = { lat, lon };
+                hideMessage();
+                
+                // Track successful geolocation
+                trackFeatureUsage('geolocation', {
+                    'action': 'permission_granted',
+                    'accuracy': position.coords.accuracy
+                });
+                
+                getCurrentWeatherByCoords(lat, lon);
+            },
+            (error) => {
+                hideLoading();
+                let errorMessage;
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMessage = "Location access denied. Please enable location services.";
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMessage = "Location information unavailable. Try again later.";
+                        break;
+                    case error.TIMEOUT:
+                        errorMessage = "Location request timed out. Try again.";
+                        break;
+                    default:
+                        errorMessage = "Unknown location error occurred.";
+                }
+                showMessage(errorMessage);
+                console.error("Geolocation error:", error);
+                
+                // Track geolocation error
+                trackErrorOccurrence('geolocation_error', errorMessage, 'getUserLocation');
+                
+                // Fall back to default city
+                getWeather('Hong Kong');
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    } else {
+        showMessage("Geolocation not supported by your browser. Using default city.");
+        
+        // Track geolocation not supported
+        trackErrorOccurrence('geolocation_not_supported', 'Browser does not support geolocation', 'getUserLocation');
+        
+        getWeather('Hong Kong');
+    }
+}
+
+// Get 5-day weather forecast
 function getForecast(lat, lon) {
+    const requestStartTime = Date.now();
     const units = unitSelect.value;
     const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=${units}`;
+    
     return fetch(url)
-        .then(response => {
+        .then((response) => {
+            const responseTime = Date.now() - requestStartTime;
+            
+            // Track API call
+            trackAPICall('forecast', responseTime, response.status);
+            
             if (!response.ok) {
                 throw new Error('Forecast data unavailable');
             }
@@ -342,8 +574,14 @@ function getForecast(lat, lon) {
         })
         .then(data => {
             if (data && data.list && data.list.length > 0) {
-                console.log('Forecast data received:', data);
-                processForecastData(data, units);
+                processForecastData(data);
+                
+                // Track forecast data received
+                trackFeatureUsage('forecast', {
+                    'items_count': data.list.length,
+                    'days_count': forecastData.length
+                });
+                
                 return data;
             } else {
                 throw new Error('Invalid forecast data');
@@ -351,6 +589,10 @@ function getForecast(lat, lon) {
         })
         .catch(error => {
             console.error('Error fetching forecast:', error);
+            
+            // Track error
+            trackErrorOccurrence('forecast_error', error.message, 'getForecast');
+            
             forecastCarousel.innerHTML = `
                 <div style="padding: 20px; text-align: center; background: rgba(255,255,255,0.5); border-radius: 10px; width: 100%;">
                     <p style="color: #d32f2f; font-weight: 500;">Error loading forecast: ${error.message}</p>
@@ -359,19 +601,18 @@ function getForecast(lat, lon) {
         });
 }
 
-// 处理预报数据 - 优化计算每日的最高/最低温度，并使用中午附近的数据作为代表
-function processForecastData(data, units) {
-    // 处理预报数据 - 计算每日真实的最高/最低温度
+// Process forecast data - optimize calculation of daily maximum/minimum temperatures and use data near noon as representative
+function processForecastData(data) {
     forecastData = [];
     const dailyData = new Map();
     
-    // 按日期分组预报并跟踪最高/最低温度
+    // Group forecasts by date and keep track of max/min temperatures
     data.list.forEach(item => {
         const date = new Date(item.dt * 1000);
         const day = date.toLocaleDateString();
         
         if (!dailyData.has(day)) {
-            // 初始化该日期的数据
+           // Initialize the data for this date
             dailyData.set(day, {
                 date: date,
                 temp_min: item.main.temp,
@@ -379,7 +620,7 @@ function processForecastData(data, units) {
                 forecasts: [item]
             });
         } else {
-            // 更新最高/最低温度并添加预报到数组
+           // Update the max/min temperatures and add the forecast to the array
             const dayData = dailyData.get(day);
             dayData.temp_min = Math.min(dayData.temp_min, item.main.temp);
             dayData.temp_max = Math.max(dayData.temp_max, item.main.temp);
@@ -387,41 +628,48 @@ function processForecastData(data, units) {
         }
     });
     
-    // 处理每日数据，找到最接近中午12点的预报作为代表
+    // Process daily data and find the forecast closest to noon as the representative
     dailyData.forEach((dayData, day) => {
-        // 找到最接近中午12点的预报
+        // Find the forecast closest to 12 noon
         let noonForecast = dayData.forecasts.reduce((closest, current) => {
             const currentHour = new Date(current.dt * 1000).getHours();
             const closestHour = new Date(closest.dt * 1000).getHours();
             return Math.abs(currentHour - 12) < Math.abs(closestHour - 12) ? current : closest;
         }, dayData.forecasts[0]);
         
-        // 创建日代表预报，结合准确的最高/最低温度
-        const dayForecast = {...noonForecast};  // 克隆中午的预报
+       // Create a representative forecast for the day, combined with accurate max/min temperatures
+        const dayForecast = {...noonForecast};  // Clone the midday forecast
         dayForecast.main.temp_min = Math.round(dayData.temp_min);
         dayForecast.main.temp_max = Math.round(dayData.temp_max);
         
         forecastData.push(dayForecast);
     });
     
-    // 按日期排序
+    // Sort by date
     forecastData.sort((a, b) => a.dt - b.dt);
     
-    // 限制为5天
+    //Limited to 5 days
     forecastData = forecastData.slice(0, 5);
     
-    // 重置轮播页
+    // Reset the carousel page
     currentForecastPage = 0;
     
-    // 创建预报UI
+    // Create forecast UI
     createForecastUI();
 }
 
-// 获取空气污染数据
+// Get air pollution data
 function getAirPollution(lat, lon) {
+    const requestStartTime = Date.now();
     const url = `https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${apiKey}`;
+    
     return fetch(url)
-        .then(response => {
+        .then((response) => {
+            const responseTime = Date.now() - requestStartTime;
+            
+            // Track API call
+            trackAPICall('air_pollution', responseTime, response.status);
+            
             if (!response.ok) {
                 throw new Error('Air quality data unavailable');
             }
@@ -430,6 +678,17 @@ function getAirPollution(lat, lon) {
         .then(data => {
             if (data && data.list && data.list.length > 0) {
                 drawAirPollution(data);
+                
+                // Track air quality data
+                trackFeatureUsage('air_quality', {
+                    'aqi_value': data.list[0].main.aqi,
+                    'co': data.list[0].components.co,
+                    'no2': data.list[0].components.no2,
+                    'o3': data.list[0].components.o3,
+                    'pm2_5': data.list[0].components.pm2_5,
+                    'pm10': data.list[0].components.pm10
+                });
+                
                 return data;
             } else {
                 throw new Error('Invalid air quality data');
@@ -437,6 +696,10 @@ function getAirPollution(lat, lon) {
         })
         .catch(error => {
             console.error('Error fetching air pollution data:', error);
+            
+            // Track error
+            trackErrorOccurrence('air_quality_error', error.message, 'getAirPollution');
+            
             airQualityContainer.innerHTML = `
                 <div style="padding: 20px; text-align: center; background: rgba(255,255,255,0.5); border-radius: 10px;">
                     <p style="color: #d32f2f; font-weight: 500;">Error loading air quality data: ${error.message}</p>
@@ -445,11 +708,11 @@ function getAirPollution(lat, lon) {
         });
 }
 
-// 显示当前天气 - 简化版，不区分日夜
+// Display the current weather
 function drawCurrentWeather(data) {
     console.log('Current weather data:', data);
     
-    // 提取数据
+    // Extract data
     const tempValue = Math.round(data.main.temp);
     const feelsLike = Math.round(data.main.feels_like);
     const pressure = data.main.pressure;
@@ -460,58 +723,70 @@ function drawCurrentWeather(data) {
     const iconCode = data.weather[0].icon;
     const currentTime = data.dt;
     
-    // 获取格式化的描述 - 不区分日夜
+    // Get the formatted description
     const formattedDescription = getFormattedWeatherDescription(descriptionValue);
     description.textContent = formattedDescription;
     
-    // 使用白天图标
+    // Use the daytime icon
     const dayIconCode = iconCode.slice(0, -1) + 'd';
     
-    // 更新DOM元素
-    temp.innerHTML = `${tempValue}°<span style="font-size: 2.5rem; font-weight: 600;">${unitSelect.value === 'metric' ? 'C' : 'F'}</span>`;
+    // Update DOM elements
+    const unitLabel = unitSelect.value === 'metric' ? 'C' : 'F';
+    temp.innerHTML = `${tempValue}°<span style="font-size: 2.5rem; font-weight: 600;">${unitLabel}</span>`;
     locationElem.textContent = locationValue;
     humidityElem.textContent = `${humidityValue}%`;
     windElem.textContent = `${windValue} ${unitSelect.value === 'metric' ? 'm/s' : 'mph'}`;
-    feelsLikeElem.textContent = `${feelsLike}°${unitSelect.value === 'metric' ? 'C' : 'F'}`;
+    feelsLikeElem.textContent = `${feelsLike}°${unitLabel}`;
     pressureElem.textContent = `${pressure} hPa`;
     
-    // 设置天气图标 - 使用白天图标
+    // Set the weather icon - use the daytime icon
     const iconUrl = getWeatherIconUrl(dayIconCode);
     weatherIcon.src = iconUrl;
     weatherIcon.alt = formattedDescription;
     
-    // 更新时间信息
+    // Update time information
     currentUpdateTime.textContent = `Last updated: ${formatDateTime(currentTime)}`;
     
-    // 更新背景 - 统一使用白天背景
+    // Update background - use daytime background uniformly
     updateBackgroundByWeather(descriptionValue);
     
-    // 更新地图
+    // Update the map
     initMap(data.coord.lat, data.coord.lon, locationValue);
+    
+    // Track weather data view
+    trackWeatherData(
+        data.name, 
+        data.sys.country, 
+        formattedDescription,
+        tempValue
+    );
+    
+    // Track current section view
+    trackScreenView('current_weather');
 }
 
-// 创建预报UI - 简化版，统一使用白天预报
+// Create forecast UI
 function createForecastUI() {
-    // 清空容器
+    // Clear the container
     forecastCarousel.innerHTML = '';
     
     try {
-        // 检查数据
+        // Check data
         if (forecastData.length === 0) {
             forecastCarousel.innerHTML = '<p style="text-align: center; color: #d32f2f; width: 100%;">No forecast data available</p>';
             return;
         }
         
-        // 创建预报项
+        // Create forecast item
         forecastData.forEach((item, index) => {
             const date = new Date(item.dt * 1000);
             const dayName = date.toLocaleDateString('en-US', {weekday: 'short'});
             const dayDate = date.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
             
-            // 获取统一的白天天气描述
+            // Get a unified daytime weather description
             const weatherDesc = getFormattedWeatherDescription(item.weather[0].description);
             
-            // 使用白天图标 
+            // Use the daytime icon
             const iconCode = item.weather[0].icon.slice(0, -1) + 'd';
             
             const tempMax = Math.round(item.main.temp_max);
@@ -539,14 +814,24 @@ function createForecastUI() {
             `;
             
             forecastItem.addEventListener('click', () => {
+                // Track forecast item click
+                trackUserAction('view_forecast_detail', {
+                    'day': dayName,
+                    'date': dayDate,
+                    'forecast_index': index
+                });
+                
                 showForecastDetail(item, dayName, dayDate, iconCode, weatherDesc);
             });
             
             forecastCarousel.appendChild(forecastItem);
         });
         
-        // 初始显示第一页
+        // Initially display the first page
         showForecastPage(0);
+        
+        // Track forecast section view
+        trackScreenView('forecast');
         
     } catch (error) {
         console.error('Error creating forecast UI:', error);
@@ -558,9 +843,9 @@ function createForecastUI() {
     }
 }
 
-// 显示预报详情弹窗 - 简化版，使用白天图标
+// Display forecast details popup - simplified version, using daytime icons
 function showForecastDetail(forecastItem, dayName, dayDate, iconCode, weatherDesc) {
-    // 从预报项提取数据
+    // Extract data from forecast items
     const timestamp = forecastItem.dt;
     const temp = Math.round(forecastItem.main.temp);
     const tempMax = Math.round(forecastItem.main.temp_max);
@@ -573,10 +858,10 @@ function showForecastDetail(forecastItem, dayName, dayDate, iconCode, weatherDes
     const unit = unitSelect.value === 'metric' ? '°C' : '°F';
     const windUnit = unitSelect.value === 'metric' ? 'm/s' : 'mph';
     
-    // 获取格式化的日期时间
+    // Get the formatted date and time
     const dateTime = formatDateTime(forecastItem.dt);
     
-    // 创建详情弹窗的HTML
+    // Create the HTML for the details popup
     forecastDetailBody.innerHTML = `
         <div style="text-align: center; margin-bottom: 20px;">
             <h2 style="font-size: 1.5rem; margin-bottom: 5px;">${dayName} - ${dayDate}</h2>
@@ -628,31 +913,34 @@ function showForecastDetail(forecastItem, dayName, dayDate, iconCode, weatherDes
         </div>
     `;
     
-    // 显示弹窗
+    // Display the popup window
     forecastDetailModal.style.display = 'flex';
+    
+    // Track forecast detail modal view
+    trackScreenView('forecast_detail_modal');
 }
 
-// 显示预报页面
+// Display the forecast page
 function showForecastPage(page) {
     const itemsPerPage = 3;
     const totalPages = Math.ceil(forecastData.length / itemsPerPage);
     
-    // 验证页码
+    // Verify page number
     if (page < 0) page = 0;
     if (page >= totalPages) page = totalPages - 1;
     
-    // 更新当前页
+    // Update the current page
     currentForecastPage = page;
     
-    // 获取所有预报项
+    // Get all forecast items
     const forecastItems = document.querySelectorAll('.forecast-item');
     
-    // 先隐藏所有项
+    // Hide all items first
     forecastItems.forEach(item => {
         item.style.display = 'none';
     });
     
-    // 显示当前页的项
+    // Display the items of the current page
     const startIndex = page * itemsPerPage;
     const endIndex = Math.min(startIndex + itemsPerPage, forecastData.length);
     
@@ -662,22 +950,31 @@ function showForecastPage(page) {
         }
     }
     
-    // 更新导航按钮可见性
+    // Update navigation button visibility
     forecastNavPrev.style.display = page > 0 ? 'flex' : 'none';
     forecastNavNext.style.display = page < totalPages - 1 ? 'flex' : 'none';
+    
+    // Track forecast pagination
+    if (page > 0) {
+        trackUserAction('forecast_pagination', {
+            'page': page,
+            'total_pages': totalPages,
+            'items_per_page': itemsPerPage
+        });
+    }
 }
 
-// 显示空气污染数据
+// Display air pollution data
 function drawAirPollution(data) {
     try {
         const aqi = data.list[0].main.aqi;
         const components = data.list[0].components;
         const aqiData = aqiInfo[aqi] || { color: '#78909C', text: 'Unknown' };
         
-        // 计算AQI标记位置（1-5比例转为0-100%）
+        // Calculate the AQI marker position (1-5 ratio converted to 0-100%)
         const aqiPosition = ((aqi - 1) / 4) * 100;
         
-        // 构建空气质量UI
+        // Build the air quality UI
         let html = `
             <div class="aqi-display">
                 <span class="aqi-label" style="background-color:${aqiData.color}">
@@ -693,7 +990,7 @@ function drawAirPollution(data) {
             <div class="pollutant-grid">
         `;
         
-        // 添加污染物数据
+        // Add pollutant data
         const pollutants = {
             co: { name: 'CO', unit: 'μg/m³', value: components.co.toFixed(1) },
             no2: { name: 'NO₂', unit: 'μg/m³', value: components.no2.toFixed(1) },
@@ -703,7 +1000,7 @@ function drawAirPollution(data) {
             so2: { name: 'SO₂', unit: 'μg/m³', value: components.so2.toFixed(1) }
         };
         
-        // 创建污染物项
+        // Create pollutant items
         for (const [key, data] of Object.entries(pollutants)) {
             html += `
                 <div class="pollutant-item">
@@ -720,8 +1017,14 @@ function drawAirPollution(data) {
         
         airQualityContainer.innerHTML = html;
         
+        // Track air quality section view
+        trackScreenView('air_quality');
     } catch (error) {
         console.error('Error rendering air quality data:', error);
+        
+        // Track error
+        trackErrorOccurrence('air_quality_rendering_error', error.message, 'drawAirPollution');
+        
         airQualityContainer.innerHTML = `
             <div style="padding: 20px; text-align: center;">
                 <p style="color: #777;">Air quality data not available for this location</p>
@@ -730,28 +1033,36 @@ function drawAirPollution(data) {
     }
 }
 
-// 初始化地图
+// Initialize the map
 function initMap(lat, lon, locationName) {
     try {
-        // 如果地图已存在，先移除
+        // If the map already exists, remove it first
         if (map) {
             map.remove();
             map = null;
         }
         
-        // 创建地图实例
+        // Create a map instance
         map = L.map('map', {
             zoomControl: true,
             attributionControl: true
         }).setView([lat, lon], 8);
         
-        // 添加基础图层
+        // Track map initialization
+        trackFeatureUsage('map', {
+            'action': 'initialize',
+            'latitude': lat,
+            'longitude': lon,
+            'zoom': 8
+        });
+        
+        // Add base layer
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Weather data &copy; <a href="https://openweathermap.org">OpenWeatherMap</a>',
             maxZoom: 19
         }).addTo(map);
         
-        // 添加激活的天气图层
+        // Add the activated weather layer
         const activeBtn = document.querySelector('.map-btn.active');
         const selectedLayer = activeBtn ? activeBtn.dataset.layer : 'precipitation_new';
         
@@ -760,19 +1071,40 @@ function initMap(lat, lon, locationName) {
             opacity: 0.7
         }).addTo(map);
         
-        // 添加位置标记
+        // Add position marker
         mapMarker = L.marker([lat, lon])
             .addTo(map)
             .bindPopup(`<b>${locationName || 'Current Location'}</b>`)
             .openPopup();
         
-        // 加载后修复地图大小
+        // Fix map size after loading
         setTimeout(() => {
             map.invalidateSize();
         }, 500);
         
+        // Add map event listeners
+        map.on('zoomend', function() {
+            trackUserAction('map_zoom', {
+                'new_zoom': map.getZoom()
+            });
+        });
+        
+        map.on('moveend', function() {
+            const center = map.getCenter();
+            trackUserAction('map_move', {
+                'latitude': center.lat.toFixed(4),
+                'longitude': center.lng.toFixed(4)
+            });
+        });
+        
+        // Track map section view
+        trackScreenView('weather_map');
     } catch (error) {
         console.error('Error initializing map:', error);
+        
+        // Track error
+        trackErrorOccurrence('map_error', error.message, 'initMap');
+        
         document.getElementById('map').innerHTML = `
             <div style="padding: 30px; text-align: center; background-color: rgba(255,255,255,0.9); border-radius: 10px;">
                 <p style="color: #d32f2f; font-weight: bold; margin-bottom: 15px;">Error loading map: ${error.message}</p>
@@ -785,110 +1117,281 @@ function initMap(lat, lon, locationName) {
     }
 }
 
-// 事件监听器
+// Show Analytics Modal
+function showAnalyticsModal() {
+    analyticsModal.style.display = 'flex';
+    
+    // Track analytics view
+    trackScreenView('analytics_dashboard');
+}
+
+// Hide Analytics Modal
+function hideAnalyticsModal() {
+    analyticsModal.style.display = 'none';
+}
+
+// Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    startTime = Date.now();
     showMessage("Loading weather information...", "success");
     
-    // 先尝试加载输入框中默认城市的天气
-    const defaultCity = cityInput.value.trim();
-    if (defaultCity) {
-        getWeather(defaultCity);
-    }
-    // 如果没有默认城市，则尝试自动使用地理位置
-    else if (navigator.geolocation) {
+    // Track page load
+    trackScreenView('app_loaded');
+    
+    // Use geographic location first
+    if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-            position => {
+            (position) => {
                 hideMessage();
                 const lat = position.coords.latitude;
                 const lon = position.coords.longitude;
+                userCoords = { lat, lon };
                 getCurrentWeatherByCoords(lat, lon);
             },
-            error => {
+            (error) => {
                 console.error("Geolocation error:", error);
-                showMessage("Using default city: Hong Kong");
-                getWeather('Hong Kong');
+                
+                // Track geolocation error on initial load
+                trackErrorOccurrence('initial_geolocation_error', error.message, 'DOMContentLoaded');
+                
+                // If there is a city in the input box, use it
+                const defaultCity = cityInput.value.trim();
+                if (defaultCity) {
+                    showMessage(`Location access failed. Using ${defaultCity} instead.`);
+                    getWeather(defaultCity);
+                } else {
+                    // Otherwise use Hong Kong as the default
+                    showMessage("Using default city: Hong Kong");
+                    getWeather('Hong Kong');
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
             }
         );
     } else {
-        showMessage("Geolocation not supported by your browser. Using default city.");
-        getWeather('Hong Kong');
+        // The browser does not support positioning
+        const defaultCity = cityInput.value.trim() || 'Hong Kong';
+        showMessage(`Geolocation not supported. Using ${defaultCity}.`);
+        
+        // Track geolocation not supported on initial load
+        trackErrorOccurrence('geolocation_not_supported', 'Browser does not support geolocation', 'DOMContentLoaded');
+        
+        getWeather(defaultCity);
     }
 });
 
-// 点击天气按钮的事件监听器
+// Button click - search
 getWeatherBtn.addEventListener('click', () => {
     const city = cityInput.value.trim();
     if (city) {
         hideMessage();
+        
+        // Track search button click
+        trackUserAction('search_button_click', {
+            'search_term': city
+        });
+        
         getWeather(city);
         currentCity = city;
     } else {
         showMessage('Please enter a city name');
+        
+        // Track empty search attempt
+        trackErrorOccurrence('search_error', 'Empty search term', 'getWeatherBtn_click');
     }
 });
 
-// 输入框中按Enter键的事件监听器
+// Button click - My location
+getLocationBtn.addEventListener('click', () => {
+    // Track location button click
+    trackUserAction('location_button_click');
+    
+    getUserLocation();
+});
+
+// Enter key in search input
 cityInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         const city = cityInput.value.trim();
         if (city) {
             hideMessage();
+            
+            // Track search via enter key
+            trackUserAction('search_enter_key', {
+                'search_term': city
+            });
+            
             getWeather(city);
             currentCity = city;
         } else {
             showMessage('Please enter a city name');
+            
+            // Track empty search attempt
+            trackErrorOccurrence('search_error', 'Empty search term', 'enter_key');
         }
     }
 });
 
-// 更改温度单位的事件监听器
+// Unit switching
 unitSelect.addEventListener('change', () => {
+    // Track unit change
+    trackUserAction('unit_change', {
+        'new_unit': unitSelect.value,
+        'from_unit': unitSelect.value === 'metric' ? 'imperial' : 'metric'
+    });
+    
     if (currentCity) {
         getWeather(currentCity);
+    } else if (userCoords) {
+        getCurrentWeatherByCoords(userCoords.lat, userCoords.lon);
     } else if (map) {
         const center = map.getCenter();
         getCurrentWeatherByCoords(center.lat, center.lng);
     }
 });
 
-// 地图图层按钮
-document.querySelectorAll('.map-btn').forEach(btn => {
+// Map layer selection
+document.querySelectorAll('.map-btn').forEach((btn) => {
     btn.addEventListener('click', function() {
-        // 移除所有按钮的活动类
-        document.querySelectorAll('.map-btn').forEach(b => b.classList.remove('active'));
-        
-        // 给点击的按钮添加活动类
+        document.querySelectorAll('.map-btn').forEach((b) => b.classList.remove('active'));
         this.classList.add('active');
         
-        // 更改天气图层
+        // Track map layer change
+        trackUserAction('map_layer_change', {
+            'layer': this.dataset.layer
+        });
+        
         if (map && weatherLayer) {
             const selectedLayer = this.dataset.layer;
             map.removeLayer(weatherLayer);
-            weatherLayer = L.tileLayer(`https://tile.openweathermap.org/map/${selectedLayer}/{z}/{x}/{y}.png?appid=${apiKey}`, {
-                attribution: 'Weather data &copy; <a href="https://openweathermap.org">OpenWeatherMap</a>',
-                opacity: 0.7
-            }).addTo(map);
+            weatherLayer = L.tileLayer(
+                `https://tile.openweathermap.org/map/${selectedLayer}/{z}/{x}/{y}.png?appid=${apiKey}`,
+                {
+                    attribution: 'Weather data &copy; <a href="https://openweathermap.org">OpenWeatherMap</a>',
+                    opacity: 0.7
+                }
+            ).addTo(map);
         }
     });
 });
 
-// 预报导航按钮
+// Forecast paging
 forecastNavPrev.addEventListener('click', () => {
+    // Track forecast navigation
+    trackUserAction('forecast_nav', {
+        'direction': 'prev',
+        'current_page': currentForecastPage
+    });
+    
     showForecastPage(currentForecastPage - 1);
 });
 
 forecastNavNext.addEventListener('click', () => {
+    // Track forecast navigation
+    trackUserAction('forecast_nav', {
+        'direction': 'next',
+        'current_page': currentForecastPage
+    });
+    
     showForecastPage(currentForecastPage + 1);
 });
 
-// 关闭预报详情弹窗
+// Close the forecast details pop-up window
 forecastDetailClose.addEventListener('click', () => {
     forecastDetailModal.style.display = 'none';
+    
+    // Track forecast modal close
+    trackUserAction('close_forecast_modal', {
+        'method': 'close_button'
+    });
 });
 
-// 点击弹窗外部关闭
+// Click outside the pop-up window to close
 forecastDetailModal.addEventListener('click', (e) => {
     if (e.target === forecastDetailModal) {
         forecastDetailModal.style.display = 'none';
+        
+        // Track forecast modal close
+        trackUserAction('close_forecast_modal', {
+            'method': 'outside_click'
+        });
     }
 });
+
+// Analytics button and modal
+analyticsBtn.addEventListener('click', () => {
+    // Track analytics button click
+    trackUserAction('analytics_button_click');
+    
+    showAnalyticsModal();
+});
+
+analyticsClose.addEventListener('click', () => {
+    hideAnalyticsModal();
+    
+    // Track analytics modal close
+    trackUserAction('close_analytics_modal', {
+        'method': 'close_button'
+    });
+});
+
+analyticsModal.addEventListener('click', (e) => {
+    if (e.target === analyticsModal) {
+        hideAnalyticsModal();
+        
+        // Track analytics modal close
+        trackUserAction('close_analytics_modal', {
+            'method': 'outside_click'
+        });
+    }
+});
+
+// Track all link clicks for navigation analysis
+document.addEventListener('click', function(e) {
+    const target = e.target.closest('a');
+    if (target && target.href) {
+        trackUserAction('link_click', {
+            'href': target.href,
+            'text': target.textContent.trim(),
+            'id': target.id || 'unnamed_link'
+        });
+    }
+});
+
+// Track scrolling behavior
+let lastKnownScrollPosition = 0;
+let ticking = false;
+
+document.addEventListener('scroll', function() {
+    lastKnownScrollPosition = window.scrollY;
+    
+    if (!ticking) {
+        window.requestAnimationFrame(function() {
+            // Only track significant scrolls (more than 20% of viewport)
+            if (Math.abs(lastKnownScrollPosition - window.scrollY) > window.innerHeight * 0.2) {
+                trackUserAction('significant_scroll', {
+                    'scroll_position': window.scrollY,
+                    'scroll_percentage': (window.scrollY / (document.body.scrollHeight - window.innerHeight) * 100).toFixed(1)
+                });
+            }
+            ticking = false;
+        });
+        ticking = true;
+    }
+});
+
+// Track session duration periodically
+let sessionStartTime = Date.now();
+setInterval(function() {
+    const sessionDuration = Math.floor((Date.now() - sessionStartTime) / 1000);
+    // Track every minute
+    if (sessionDuration % 60 === 0) {
+        logEvent('session_duration_reached', {
+            'duration_seconds': sessionDuration,
+            'duration_minutes': Math.floor(sessionDuration / 60)
+        });
+    }
+}, 5000); // Check every 5 seconds
