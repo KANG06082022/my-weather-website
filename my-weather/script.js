@@ -393,12 +393,7 @@ function getWeather(city) {
             hideLoading();
             showMessage(`Weather updated for ${currentCity}`, 'success');
             
-            // Track success completion
-            trackUserAction('weather_update_complete', {
-                'city': currentCity,
-                'method': 'city_search',
-                'total_time_ms': Date.now() - lastSearchTime
-            });
+        
         })
         .catch(error => {
             hideLoading();
@@ -466,12 +461,7 @@ function getCurrentWeatherByCoords(lat, lon) {
             hideLoading();
             showMessage(`Weather updated for your location: ${currentCity}`, 'success');
             
-            // Track success completion
-            trackUserAction('weather_update_complete', {
-                'city': currentCity,
-                'method': 'geolocation',
-                'total_time_ms': Date.now() - lastSearchTime
-            });
+         
         })
         .catch(error => {
             hideLoading();
@@ -1073,21 +1063,7 @@ function initMap(lat, lon, locationName) {
             map.invalidateSize();
         }, 500);
         
-        // Add map event listeners
-        map.on('zoomend', function() {
-            trackUserAction('map_zoom', {
-                'new_zoom': map.getZoom()
-            });
-        });
-        
-        map.on('moveend', function() {
-            const center = map.getCenter();
-            trackUserAction('map_move', {
-                'latitude': center.lat.toFixed(4),
-                'longitude': center.lng.toFixed(4)
-            });
-        });
-        
+         
         
     } catch (error) {
         console.error('Error initializing map:', error);
@@ -1177,10 +1153,7 @@ getWeatherBtn.addEventListener('click', () => {
     if (city) {
         hideMessage();
         
-        // Track search button click
-        trackUserAction('search_button_click', {
-            'search_term': city
-        });
+       
         
         getWeather(city);
         currentCity = city;
