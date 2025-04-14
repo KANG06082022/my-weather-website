@@ -188,7 +188,11 @@ function trackUserAction(actionName, actionDetails = {}) {
     });
 }
 
-
+function trackScreenView(screenName) {
+    logEvent('screen_view', {
+        'screen_name': screenName
+    });
+}
 
 function trackWeatherData(city, country, weather_condition, temperature) {
     logEvent('weather_data_view', {
@@ -343,7 +347,7 @@ function getWeather(city) {
     lastSearchTime = Date.now();
     
     // Track search attempt
-    trackUserAction('', {
+    trackUserAction('search_weather', {
         'search_term': city,
         'units': units,
         'search_method': 'city_name'
@@ -393,7 +397,12 @@ function getWeather(city) {
             hideLoading();
             showMessage(`Weather updated for ${currentCity}`, 'success');
             
-        
+            // Track success completion
+            trackUserAction('weather_update_complete', {
+                'city': currentCity,
+                'method': 'city_search',
+                'total_time_ms': Date.now() - lastSearchTime
+            });
         })
         .catch(error => {
             hideLoading();
@@ -461,7 +470,12 @@ function getCurrentWeatherByCoords(lat, lon) {
             hideLoading();
             showMessage(`Weather updated for your location: ${currentCity}`, 'success');
             
-         
+            // Track success completion
+            trackUserAction('weather_update_complete', {
+                'city': currentCity,
+                'method': 'geolocation',
+                'total_time_ms': Date.now() - lastSearchTime
+            });
         })
         .catch(error => {
             hideLoading();
@@ -747,7 +761,8 @@ function drawCurrentWeather(data) {
         tempValue
     );
     
-   
+    // Track current section view
+    trackScreenView('current_weather');
 }
 
 // Create forecast UI
@@ -815,7 +830,8 @@ function createForecastUI() {
         // Initially display the first page
         showForecastPage(0);
         
-     
+        // Track forecast section view
+        trackScreenView('forecast');
         
     } catch (error) {
         console.error('Error creating forecast UI:', error);
@@ -899,7 +915,9 @@ function showForecastDetail(forecastItem, dayName, dayDate, iconCode, weatherDes
     
     // Display the popup window
     forecastDetailModal.style.display = 'flex';
-   
+    
+    // Track forecast detail modal view
+    trackScreenView('forecast_detail_modal');
 }
 
 // Display the forecast page
@@ -999,7 +1017,8 @@ function drawAirPollution(data) {
         
         airQualityContainer.innerHTML = html;
         
-       
+        // Track air quality section view
+        trackScreenView('air_quality');
     } catch (error) {
         console.error('Error rendering air quality data:', error);
         
@@ -1063,8 +1082,23 @@ function initMap(lat, lon, locationName) {
             map.invalidateSize();
         }, 500);
         
-         
+        // Add map event listeners
+        map.on('zoomend', function() {
+            trackUserAction('map_zoom', {
+                'new_zoom': map.getZoom()
+            });
+        });
         
+        map.on('moveend', function() {
+            const center = map.getCenter();
+            trackUserAction('map_move', {
+                'latitude': center.lat.toFixed(4),
+                'longitude': center.lng.toFixed(4)
+            });
+        });
+        
+        // Track map section view
+        trackScreenView('weather_map');
     } catch (error) {
         console.error('Error initializing map:', error);
         
@@ -1087,7 +1121,8 @@ function initMap(lat, lon, locationName) {
 function showAnalyticsModal() {
     analyticsModal.style.display = 'flex';
     
-   
+    // Track analytics view
+    trackScreenView('analytics_dashboard');
 }
 
 // Hide Analytics Modal
@@ -1100,7 +1135,8 @@ document.addEventListener('DOMContentLoaded', function() {
     startTime = Date.now();
     showMessage("Loading weather information...", "success");
     
-    
+    // Track page load
+    trackScreenView('app_loaded');
     
     // Use geographic location first
     if (navigator.geolocation) {
@@ -1153,7 +1189,10 @@ getWeatherBtn.addEventListener('click', () => {
     if (city) {
         hideMessage();
         
-       
+        // Track search button click
+        trackUserAction('search_button_click', {
+            'search_term': city
+        });
         
         getWeather(city);
         currentCity = city;
