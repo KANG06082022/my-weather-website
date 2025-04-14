@@ -38,6 +38,11 @@ let startTime = Date.now();
 let apiCallCount = 0;
 let lastSearchTime = null;
 
+// Track user activity metrics
+let searchButtonClickCount = 0;
+let locationButtonClickCount = 0;
+let searchTerms = [];
+
 // Weather condition mapping
 const weatherConditions = {
     // Clear skies
@@ -159,10 +164,16 @@ function trackAPICall(endpoint, responseTime, status) {
 }
 
 function trackSearch(query, resultCount, searchTime) {
+    // Add the search term to the history
+    if (query && !searchTerms.includes(query)) {
+        searchTerms.push(query);
+    }
+    
     logEvent('search', {
         'search_term': query,
         'results_count': resultCount,
-        'search_time_ms': searchTime
+        'search_time_ms': searchTime,
+        'total_searches': searchTerms.length
     });
 }
 
@@ -182,9 +193,18 @@ function trackErrorOccurrence(errorType, errorMessage, source) {
 }
 
 function trackUserAction(actionName, actionDetails = {}) {
+    // Enhanced user action tracking
+    const enhancedDetails = {
+        ...actionDetails,
+        'session_time_ms': Date.now() - startTime,
+        'search_button_count': searchButtonClickCount,
+        'location_button_count': locationButtonClickCount,
+        'search_terms_count': searchTerms.length
+    };
+    
     logEvent('user_action', {
         'action_name': actionName,
-        ...actionDetails
+        ...enhancedDetails
     });
 }
 
@@ -200,6 +220,30 @@ function trackWeatherData(city, country, weather_condition, temperature) {
         'country': country,
         'weather_condition': weather_condition,
         'temperature': temperature
+    });
+}
+
+// Track button clicks specifically
+function trackSearchButtonClick(searchTerm) {
+    searchButtonClickCount++;
+    
+    // Track the specific search button click event
+    logEvent('button_click', {
+        'button_name': 'get_weather',
+        'search_term': searchTerm,
+        'click_count': searchButtonClickCount,
+        'timestamp': new Date().toISOString()
+    });
+}
+
+function trackLocationButtonClick() {
+    locationButtonClickCount++;
+    
+    // Track the specific location button click event
+    logEvent('button_click', {
+        'button_name': 'my_location',
+        'click_count': locationButtonClickCount,
+        'timestamp': new Date().toISOString()
     });
 }
 
@@ -446,6 +490,11 @@ function getCurrentWeatherByCoords(lat, lon) {
             drawCurrentWeather(data);
             cityInput.value = data.name;
             currentCity = data.name;
+            
+            // Add this location to search terms if using My Location
+            if (!searchTerms.includes(data.name)) {
+                searchTerms.push(data.name);
+            }
             
             // Track successful search
             const searchTime = Date.now() - lastSearchTime;
@@ -1123,6 +1172,15 @@ function showAnalyticsModal() {
     
     // Track analytics view
     trackScreenView('analytics_dashboard');
+    
+    // Send additional analytics data to be shown in the dashboard
+    logEvent('analytics_view', {
+        'search_button_clicks': searchButtonClickCount,
+        'location_button_clicks': locationButtonClickCount,
+        'search_terms': searchTerms.join(', '),
+        'unique_search_terms': searchTerms.length,
+        'session_duration_seconds': Math.floor((Date.now() - startTime) / 1000)
+    });
 }
 
 // Hide Analytics Modal
@@ -1134,6 +1192,11 @@ function hideAnalyticsModal() {
 document.addEventListener('DOMContentLoaded', function() {
     startTime = Date.now();
     showMessage("Loading weather information...", "success");
+    
+    // Reset tracking counts
+    searchButtonClickCount = 0;
+    locationButtonClickCount = 0;
+    searchTerms = [];
     
     // Track page load
     trackScreenView('app_loaded');
@@ -1189,9 +1252,14 @@ getWeatherBtn.addEventListener('click', () => {
     if (city) {
         hideMessage();
         
+        // Track search button click with enhanced information
+        trackSearchButtonClick(city);
+        
         // Track search button click
         trackUserAction('search_button_click', {
-            'search_term': city
+            'search_term': city,
+            'click_count': searchButtonClickCount,
+            'search_history': searchTerms.join(', ')
         });
         
         getWeather(city);
@@ -1206,8 +1274,13 @@ getWeatherBtn.addEventListener('click', () => {
 
 // Button click - My location
 getLocationBtn.addEventListener('click', () => {
+    // Track location button click with enhanced information
+    trackLocationButtonClick();
+    
     // Track location button click
-    trackUserAction('location_button_click');
+    trackUserAction('location_button_click', {
+        'click_count': locationButtonClickCount
+    });
     
     getUserLocation();
 });
@@ -1219,9 +1292,14 @@ cityInput.addEventListener('keypress', (e) => {
         if (city) {
             hideMessage();
             
+            // Add to search count since this is equivalent to clicking the search button
+            searchButtonClickCount++;
+            
             // Track search via enter key
             trackUserAction('search_enter_key', {
-                'search_term': city
+                'search_term': city,
+                'search_button_count': searchButtonClickCount,
+                'search_history': searchTerms.join(', ')
             });
             
             getWeather(city);
@@ -1391,7 +1469,10 @@ setInterval(function() {
     if (sessionDuration % 60 === 0) {
         logEvent('session_duration_reached', {
             'duration_seconds': sessionDuration,
-            'duration_minutes': Math.floor(sessionDuration / 60)
+            'duration_minutes': Math.floor(sessionDuration / 60),
+            'search_button_clicks': searchButtonClickCount,
+            'location_button_clicks': locationButtonClickCount,
+            'unique_search_terms': searchTerms.length
         });
     }
 }, 5000); // Check every 5 seconds
