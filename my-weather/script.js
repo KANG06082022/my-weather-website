@@ -188,11 +188,7 @@ function trackUserAction(actionName, actionDetails = {}) {
     });
 }
 
-function trackScreenView(screenName) {
-    logEvent('screen_view', {
-        'screen_name': screenName
-    });
-}
+
 
 function trackWeatherData(city, country, weather_condition, temperature) {
     logEvent('weather_data_view', {
@@ -761,8 +757,7 @@ function drawCurrentWeather(data) {
         tempValue
     );
     
-    // Track current section view
-    trackScreenView('current_weather');
+   
 }
 
 // Create forecast UI
@@ -830,8 +825,7 @@ function createForecastUI() {
         // Initially display the first page
         showForecastPage(0);
         
-        // Track forecast section view
-        trackScreenView('forecast');
+     
         
     } catch (error) {
         console.error('Error creating forecast UI:', error);
@@ -915,9 +909,7 @@ function showForecastDetail(forecastItem, dayName, dayDate, iconCode, weatherDes
     
     // Display the popup window
     forecastDetailModal.style.display = 'flex';
-    
-    // Track forecast detail modal view
-    trackScreenView('forecast_detail_modal');
+   
 }
 
 // Display the forecast page
@@ -1017,8 +1009,7 @@ function drawAirPollution(data) {
         
         airQualityContainer.innerHTML = html;
         
-        // Track air quality section view
-        trackScreenView('air_quality');
+       
     } catch (error) {
         console.error('Error rendering air quality data:', error);
         
@@ -1097,8 +1088,7 @@ function initMap(lat, lon, locationName) {
             });
         });
         
-        // Track map section view
-        trackScreenView('weather_map');
+        
     } catch (error) {
         console.error('Error initializing map:', error);
         
@@ -1121,8 +1111,7 @@ function initMap(lat, lon, locationName) {
 function showAnalyticsModal() {
     analyticsModal.style.display = 'flex';
     
-    // Track analytics view
-    trackScreenView('analytics_dashboard');
+   
 }
 
 // Hide Analytics Modal
@@ -1135,8 +1124,7 @@ document.addEventListener('DOMContentLoaded', function() {
     startTime = Date.now();
     showMessage("Loading weather information...", "success");
     
-    // Track page load
-    trackScreenView('app_loaded');
+    
     
     // Use geographic location first
     if (navigator.geolocation) {
