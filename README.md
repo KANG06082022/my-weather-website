@@ -78,4 +78,46 @@ Done
 
 - Check Map: Switch between map layers to view weather patterns.
 
+
+
+# Technologies
+
+
+
+
+
+HTML5, CSS3, JavaScript (ES6+)
+
+
+
+OpenWeatherMap API
+
+
+
+Leaflet.js for maps
+
+
+
+Bootstrap Icons
+
+
+
+Google Analytics (optional)
+
+# Troubleshooting
+
+
+
+
+
+- Geolocation Fails: Ensure browser location services are enabled. Try a different browser if issues persist.
+
+
+
+- API Errors: Verify your OpenWeatherMap API key is valid and correctly added to script.js.
+
+
+
+- Map Not Loading: Check your internet connection and API key.
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
