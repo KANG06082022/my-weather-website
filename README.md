@@ -35,22 +35,13 @@ A simple, modern weather app that provides real-time weather, 5-day forecasts, a
 - Responsive design for mobile and desktop.
 
 # Setup
-Download the zip from https://github.com/KANG06082022/my-weather-website/tree/d7ca622abfd8a8c4fcab9e7db95b74f39c0f42c5
+1. Download the zip from https://github.com/KANG06082022/my-weather-website/tree/d7ca622abfd8a8c4fcab9e7db95b74f39c0f42c5
+  
+2. Unzip the file and double-click index.html to open in a browser.
 
-![image](https://github.com/user-attachments/assets/0dd1786a-40a4-42fb-917c-21ed16992588)
+3. Choose Allow while visiting the site or Allow this time
 
-
-Unzip the file and click index.html
-
-![image](https://github.com/user-attachments/assets/9fbcf08d-a455-451b-967c-9d11004b3f40)
-
-
-Choose Allow while visiting the site or Allow this time
-![image](https://github.com/user-attachments/assets/1231d528-6121-4227-9528-93f516a5aef5)
-
-Done
-![image](https://github.com/user-attachments/assets/ab92745e-0353-4774-86ff-2fe59f726ad6)
-
+4. Done
 
 
 
@@ -86,23 +77,23 @@ Done
 
 
 
-HTML5, CSS3, JavaScript (ES6+)
+- HTML5, CSS3, JavaScript (ES6+)
 
 
 
-OpenWeatherMap API
+- OpenWeatherMap API
 
 
 
-Leaflet.js for maps
+- Leaflet.js for maps
 
 
 
-Bootstrap Icons
+- Bootstrap Icons
 
 
 
-Google Analytics (optional)
+- Google Analytics (optional)
 
 # Troubleshooting
 
@@ -110,14 +101,17 @@ Google Analytics (optional)
 
 
 
-- Geolocation Fails: Ensure browser location services are enabled. Try a different browser if issues persist.
+1. Geolocation Fails: Ensure browser location services are enabled. Try a different browser if issues persist.
 
 
 
-- API Errors: Verify your OpenWeatherMap API key is valid and correctly added to script.js.
+2. API Errors: Verify your OpenWeatherMap API key is valid and correctly added to script.js.
+- Get an OpenWeatherMap API Key:
+- Sign up at OpenWeatherMap for a free API key.
+- Update script.js with your key:
+  ```javascript
+  const apiKey = 'your-api-key-here';
+3. Map Not Loading: Check your internet connection and API key.
 
-
-
-- Map Not Loading: Check your internet connection and API key.
-
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+# License ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+This project is licensed under the MIT License. See the LICENSE file for details.
