@@ -113,5 +113,3 @@ A simple, modern weather app that provides real-time weather, 5-day forecasts, a
   const apiKey = 'your-api-key-here';
 3. Map Not Loading: Check your internet connection and API key.
 
-# License ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-This project is licensed under the MIT License. See the LICENSE file for details.
